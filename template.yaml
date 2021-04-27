@@ -1,0 +1,77 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: RDFOX Fargate Deployment
+
+Parameters:
+
+  VPC:
+    Type: AWS::EC2::VPC::Id
+
+  Subnets:
+    Description: Select a minimum of 3 subnets
+    Type: List<AWS::EC2::Subnet::Id>
+
+Resources:
+
+  # Fargate
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Access to the ECS hosts and the tasks/containers that run on them
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+
+  # EFS
+  EFS:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      BackupPolicy:
+        Status: ENABLED
+      Encrypted: true
+      FileSystemPolicy:
+        Statement:
+          - Action: [ "elasticfilesystem:ClientMount" ]
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+      FileSystemTags:
+        - Key: Name
+          Value: rdfox
+      LifecyclePolicies:
+        - TransitionToIA: AFTER_60_DAYS
+      PerformanceMode: generalPurpose
+      ProvisionedThroughputInMibps: 10
+      ThroughputMode: provisioned
+
+  EFSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Access to the ECS hosts and the tasks/containers that run on them
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !Ref ECSSecurityGroup
+          IpProtocol: -1
+
+  EFSMT1:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EFS
+      SecurityGroups: [ !Ref EFSSecurityGroup ]
+      SubnetId: !Select [ 0, !Ref Subnets ]
+
+  EFSMT2:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EFS
+      SecurityGroups: [ !Ref EFSSecurityGroup ]
+      SubnetId: !Select [ 1, !Ref Subnets ]
+
+  EFSMT3:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EFS
+      SecurityGroups: [ !Ref EFSSecurityGroup ]
+      SubnetId: !Select [ 2, !Ref Subnets ]
+
