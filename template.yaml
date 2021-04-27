@@ -37,7 +37,7 @@ Resources:
       #HealthCheckGracePeriodSeconds: 300
       LaunchType: FARGATE
       #LoadBalancers:
-      #  - ContainerName: !Sub ${EnvironmentName}-${ServiceName}
+      #  - ContainerName: rdfox
       #    ContainerPort: 80
       #    TargetGroupArn: !Ref  TargetGroup
       NetworkConfiguration:
@@ -52,12 +52,7 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       ContainerDefinitions:
-        - Environment:
-            - Name: RDFOX_ROLE
-              Value: role
-            - Name: RDFOX_PASSWORD
-              Value: password
-          Essential: true
+        - Essential: true
           Image: oxfordsemantic/rdfox
           LogConfiguration:
             LogDriver: awslogs
@@ -72,6 +67,10 @@ Resources:
           PortMappings:
             - ContainerPort: 12110
           Secrets:
+            - Name: RDFOX_ROLE
+              ValueFrom: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rdfox/role
+            - Name: RDFOX_PASSWORD
+              ValueFrom: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rdfox/role-password
             - Name: RDFOX_LICENSE_CONTENT
               ValueFrom: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rdfox/license
       Cpu: !Ref CPU
@@ -110,12 +109,13 @@ Resources:
             Service: [ ecs-tasks.amazonaws.com ]
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
-        - arn:aws:iam::aws:policy/AdministratorAccess
       Policies:
         - PolicyName: rdfox-task-execution-policy
           PolicyDocument:
             Statement:
-              - Action: [ ssm:GetParameter, secretsmanager:GetSecretValue, secretsmanager:DescribeSecret, kms:Decrypt ]
+              - Action: [ ssm:GetParameters, ssm:GetParameter,
+                          secretsmanager:GetSecretValue, secretsmanager:DescribeSecret,
+                          kms:Decrypt ]
                 Effect: Allow
                 Resource: "*"
 
@@ -130,8 +130,13 @@ Resources:
           Effect: Allow
           Principal:
             Service: [ ecs-tasks.amazonaws.com ]
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AdministratorAccess
+      Policies:
+        - PolicyName: rdfox-task-execution-policy
+          PolicyDocument:
+            Statement:
+              - Action: [ elasticfilesystem:* ]
+                Effect: Allow
+                Resource: "*"
 
   ECSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
