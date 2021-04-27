@@ -3,6 +3,14 @@ Description: RDFOX Fargate Deployment
 
 Parameters:
 
+  CPU:
+    Type: Number
+    Default: 1024
+
+  Memory:
+    Type: Number
+    Default: 8192
+
   VPC:
     Type: AWS::EC2::VPC::Id
 
@@ -13,6 +21,118 @@ Parameters:
 Resources:
 
   # Fargate
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: rdfox-cluster
+
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref Cluster
+      DeploymentConfiguration:
+        MaximumPercent: 100
+        MinimumHealthyPercent: 0
+      DesiredCount: 1
+      #HealthCheckGracePeriodSeconds: 300
+      LaunchType: FARGATE
+      #LoadBalancers:
+      #  - ContainerName: !Sub ${EnvironmentName}-${ServiceName}
+      #    ContainerPort: 80
+      #    TargetGroupArn: !Ref  TargetGroup
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+          Subnets: !Ref Subnets
+      TaskDefinition: !Ref TaskDefinition
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      ContainerDefinitions:
+        - Environment:
+            - Name: RDFOX_ROLE
+              Value: role
+            - Name: RDFOX_PASSWORD
+              Value: password
+          Essential: true
+          Image: oxfordsemantic/rdfox
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: rdfox
+          MountPoints:
+            - SourceVolume: rdfox
+              ContainerPath: /home/rdfox/.RDFox
+          Name: rdfox
+          PortMappings:
+            - ContainerPort: 12110
+          Secrets:
+            - Name: RDFOX_LICENSE_CONTENT
+              ValueFrom: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rdfox/license
+      Cpu: !Ref CPU
+      Memory: !Ref Memory
+      ExecutionRoleArn: !Ref TaskExecutionRole
+      Family: rdfox
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [ FARGATE ]
+      TaskRoleArn: !Ref TaskRole
+      Volumes:
+        - EFSVolumeConfiguration:
+            AuthorizationConfig:
+              IAM: ENABLED
+              AccessPointId: !GetAtt EFSAccessPoint.AccessPointId
+            FilesystemId: !Ref EFS
+            RootDirectory: /
+            TransitEncryption: ENABLED
+          Name: rdfox
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: rdfox
+      RetentionInDays: 365
+
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      RoleName: rdfox-task-execution-role
+      AssumeRolePolicyDocument:
+        Statement:
+          Action: [ sts:AssumeRole ]
+          Effect: Allow
+          Principal:
+            Service: [ ecs-tasks.amazonaws.com ]
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+        - arn:aws:iam::aws:policy/AdministratorAccess
+      Policies:
+        - PolicyName: rdfox-task-execution-policy
+          PolicyDocument:
+            Statement:
+              - Action: [ ssm:GetParameter, secretsmanager:GetSecretValue, secretsmanager:DescribeSecret, kms:Decrypt ]
+                Effect: Allow
+                Resource: "*"
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      RoleName: rdfox-task-role
+      AssumeRolePolicyDocument:
+        Statement:
+          Action: [ sts:AssumeRole ]
+          Effect: Allow
+          Principal:
+            Service: [ ecs-tasks.amazonaws.com ]
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+
   ECSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -20,8 +140,9 @@ Resources:
       GroupDescription: Access to the ECS hosts and the tasks/containers that run on them
       SecurityGroupIngress:
         - IpProtocol: tcp
-          FromPort: 0
-          ToPort: 65535
+          FromPort: 12110
+          ToPort: 12110
+          CidrIp: 0.0.0.0/0
 
   # EFS
   EFS:
@@ -44,6 +165,18 @@ Resources:
       PerformanceMode: generalPurpose
       ProvisionedThroughputInMibps: 10
       ThroughputMode: provisioned
+
+
+  EFSAccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties:
+      FileSystemId: !Ref EFS
+      RootDirectory:
+        CreationInfo:
+          OwnerGid: "1211"
+          OwnerUid: "1211"
+          Permissions: "750"
+        Path: /rdfox
 
   EFSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
