@@ -131,7 +131,7 @@ Resources:
           Principal:
             Service: [ ecs-tasks.amazonaws.com ]
       Policies:
-        - PolicyName: rdfox-task-execution-policy
+        - PolicyName: rdfox-task-policy
           PolicyDocument:
             Statement:
               - Action: [ elasticfilesystem:* ]
