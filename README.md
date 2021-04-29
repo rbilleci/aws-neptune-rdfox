@@ -12,9 +12,7 @@
 4. From the AWS Management Console, open CloudFormation and deploy the template.yaml file. During the deployment, you'll
    need to specify:
     - Your VPC
-    - Three subnets inside your VPC. For resiliency, the service is allowed
-    - CPU and memory settings for the Fargate instance. Please keep in mind the CPU and memory restrictions defined
-      here:
-      https://docs.aws.amazon.com/AmazonECS/latest/developerguide/AWS_Fargate.html
+    - Three subnets inside your VPC. For resiliency, the fargate service is allowed to launch in any of the 3 subnets specified.
+    - CPU and memory settings for the Fargate instance. Please keep in mind that RDFOX is an in-memory database and Fargate's CPU and memory  options defined here: https://docs.aws.amazon.com/AmazonECS/latest/developerguide/AWS_Fargate.html
    
 5. After the Fargate service is up and running, you can access RDFOX at: `http://<FARGATE_IP>:12110/console`
