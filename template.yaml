@@ -5,22 +5,41 @@ Parameters:
 
   CPU:
     Type: Number
-    Default: 1024
+    Description: CPU allocated to AWS Fargate Service
+    AllowedValues: [ 256, 512, 1024, 2048, 4096 ]
+    Default: 256
+
+  EFSProvisionedThroughput:
+    Type: String
+    Description: |
+      By default, the Elastic File System is configured to use "bursting" mode.
+      Optionally you can provision a minimum throughput, but you should only
+      change this value if you aware of the cost impacts. See: https://aws.amazon.com/efs/pricing/
+    AllowedValues: [ "", 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024 ]
+    Default: ""
 
   Memory:
     Type: Number
-    Default: 8192
+    Description: Memory allocated to AWS Fargate Service
+    AllowedValues: [ 512, 1024, 2048, 3072, 4096, 5120, 6144, 7168, 8192 ]
+    Default: 512
 
   VPC:
     Type: AWS::EC2::VPC::Id
 
   Subnets:
-    Description: Select a minimum of 3 subnets
+    Description: Select a minimum of 2 subnets
     Type: List<AWS::EC2::Subnet::Id>
+
+Conditions:
+
+  ProvisionThroughput: !Not
+    - !Equals
+      - !Ref EFSProvisionedThroughput
+      - ""
 
 Resources:
 
-  # Fargate
   Cluster:
     Type: AWS::ECS::Cluster
     Properties:
@@ -168,8 +187,8 @@ Resources:
       LifecyclePolicies:
         - TransitionToIA: AFTER_60_DAYS
       PerformanceMode: generalPurpose
-      ProvisionedThroughputInMibps: 10
-      ThroughputMode: provisioned
+      ProvisionedThroughputInMibps: !If [ ProvisionThroughput, !Ref EFSProvisionedThroughput, !Ref AWS::NoValue ]
+      ThroughputMode: !If [ ProvisionThroughput, provisioned, bursting ]
 
 
   EFSAccessPoint:
@@ -181,7 +200,7 @@ Resources:
           OwnerGid: "1211"
           OwnerUid: "1211"
           Permissions: "750"
-        Path: /rdfox
+        Path: /
 
   EFSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -205,11 +224,4 @@ Resources:
       FileSystemId: !Ref EFS
       SecurityGroups: [ !Ref EFSSecurityGroup ]
       SubnetId: !Select [ 1, !Ref Subnets ]
-
-  EFSMT3:
-    Type: AWS::EFS::MountTarget
-    Properties:
-      FileSystemId: !Ref EFS
-      SecurityGroups: [ !Ref EFSSecurityGroup ]
-      SubnetId: !Select [ 2, !Ref Subnets ]
 
