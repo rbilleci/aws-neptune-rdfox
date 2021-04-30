@@ -31,6 +31,22 @@ Parameters:
     Description: Select a minimum of 2 subnets
     Type: List<AWS::EC2::Subnet::Id>
 
+  TaskRole:
+    Description: |
+      Role ARN for the ECS Task Definition. The role should have permissions to "elasticfilesystem:*",
+      and must be assumable by "ecs-tasks.amazonaws.com"
+    Type: String
+    MinLength: 1
+
+  TaskExecutionRole:
+    Description: |
+      Role ARN for the ECS Task Execution. The role should have the managed policy "AmazonECSTaskExecutionRolePolicy",
+      and permissions for "ssm:GetParameters", "ssm:GetParameter", "secretsmanager:GetSecretValue",
+      "secretsmanager:DescribeSecret", and "kms:Decrypt"
+    Type: String
+    MinLength: 1
+
+
 Conditions:
 
   ProvisionThroughput: !Not
@@ -113,49 +129,7 @@ Resources:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: rdfox
-      RetentionInDays: 365
-
-  TaskExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-      Path: /
-      RoleName: rdfox-task-execution-role
-      AssumeRolePolicyDocument:
-        Statement:
-          Action: [ sts:AssumeRole ]
-          Effect: Allow
-          Principal:
-            Service: [ ecs-tasks.amazonaws.com ]
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
-      Policies:
-        - PolicyName: rdfox-task-execution-policy
-          PolicyDocument:
-            Statement:
-              - Action: [ ssm:GetParameters, ssm:GetParameter,
-                          secretsmanager:GetSecretValue, secretsmanager:DescribeSecret,
-                          kms:Decrypt ]
-                Effect: Allow
-                Resource: "*"
-
-  TaskRole:
-    Type: AWS::IAM::Role
-    Properties:
-      Path: /
-      RoleName: rdfox-task-role
-      AssumeRolePolicyDocument:
-        Statement:
-          Action: [ sts:AssumeRole ]
-          Effect: Allow
-          Principal:
-            Service: [ ecs-tasks.amazonaws.com ]
-      Policies:
-        - PolicyName: rdfox-task-policy
-          PolicyDocument:
-            Statement:
-              - Action: [ elasticfilesystem:* ]
-                Effect: Allow
-                Resource: "*"
+      RetentionInDays: 90
 
   ECSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
