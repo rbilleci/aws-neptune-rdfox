@@ -6,8 +6,8 @@ Parameters:
   CPU:
     Type: Number
     Description: CPU allocated to AWS Fargate Service
-    AllowedValues: [ 256, 512, 1024, 2048, 4096 ]
-    Default: 256
+    AllowedValues: [ 512, 1024, 2048, 4096 ]
+    Default: 512
 
   EFSProvisionedThroughput:
     Type: String
@@ -21,30 +21,28 @@ Parameters:
   Memory:
     Type: Number
     Description: Memory allocated to AWS Fargate Service
-    AllowedValues: [ 512, 1024, 2048, 3072, 4096, 5120, 6144, 7168, 8192 ]
-    Default: 512
+    AllowedValues: [ 4096, 5120, 6144, 7168, 8192 ]
+    Default: 4096
+
+  ServiceDomainName:
+    Description: Domain Name of the Service, for example; rdfox.example.com
+    Type: String
+
+  ServiceListenerARN:
+    Description: ARN of the Load Balancer Listener
+    Type: String
+
+  ServicePriority:
+    Description: Priority for Application Load Balancer Listener. This value must be unique within the Listener
+    Type: Number
+    Default: 10
 
   VPC:
     Type: AWS::EC2::VPC::Id
 
-  Subnets:
+  VPCSubnets:
     Description: Select a minimum of 2 subnets
     Type: List<AWS::EC2::Subnet::Id>
-
-  TaskRole:
-    Description: |
-      Role ARN for the ECS Task Definition. The role should have permissions to "elasticfilesystem:*",
-      and must be assumable by "ecs-tasks.amazonaws.com"
-    Type: String
-    MinLength: 1
-
-  TaskExecutionRole:
-    Description: |
-      Role ARN for the ECS Task Execution. The role should have the managed policy "AmazonECSTaskExecutionRolePolicy",
-      and permissions for "ssm:GetParameters", "ssm:GetParameter", "secretsmanager:GetSecretValue",
-      "secretsmanager:DescribeSecret", and "kms:Decrypt"
-    Type: String
-    MinLength: 1
 
 
 Conditions:
@@ -62,6 +60,7 @@ Resources:
       ClusterName: rdfox-cluster
 
   Service:
+    DependsOn: ListenerRule
     Type: AWS::ECS::Service
     Properties:
       Cluster: !Ref Cluster
@@ -69,19 +68,47 @@ Resources:
         MaximumPercent: 100
         MinimumHealthyPercent: 0
       DesiredCount: 1
-      #HealthCheckGracePeriodSeconds: 300
+      HealthCheckGracePeriodSeconds: 300
       LaunchType: FARGATE
-      #LoadBalancers:
-      #  - ContainerName: rdfox
-      #    ContainerPort: 80
-      #    TargetGroupArn: !Ref  TargetGroup
+      LoadBalancers:
+        - ContainerName: rdfox
+          ContainerPort: 12110
+          TargetGroupArn: !Ref  TargetGroup
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: ENABLED
           SecurityGroups:
             - !Ref ECSSecurityGroup
-          Subnets: !Ref Subnets
+          Subnets: !Ref VPCSubnets
       TaskDefinition: !Ref TaskDefinition
+
+  ListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref ServiceListenerARN
+      Priority: !Ref ServicePriority
+      Conditions:
+        - Field: host-header
+          Values: [ !Ref ServiceDomainName ]
+      Actions:
+        - TargetGroupArn: !Ref TargetGroup
+          Type: forward
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 20
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 3
+      Matcher:
+        HttpCode: 200-302
+      Port: 12110
+      Protocol: HTTP
+      TargetType: ip
+      UnhealthyThresholdCount: 6
+      VpcId: !Ref VPC
 
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
@@ -139,7 +166,7 @@ Resources:
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 12110
-          ToPort: 12110
+          ToPort: 12110 
           CidrIp: 0.0.0.0/0
 
   # EFS
@@ -164,7 +191,6 @@ Resources:
       ProvisionedThroughputInMibps: !If [ ProvisionThroughput, !Ref EFSProvisionedThroughput, !Ref AWS::NoValue ]
       ThroughputMode: !If [ ProvisionThroughput, provisioned, bursting ]
 
-
   EFSAccessPoint:
     Type: AWS::EFS::AccessPoint
     Properties:
@@ -174,7 +200,7 @@ Resources:
           OwnerGid: "1211"
           OwnerUid: "1211"
           Permissions: "750"
-        Path: /
+        Path: /rdfox
 
   EFSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -190,12 +216,54 @@ Resources:
     Properties:
       FileSystemId: !Ref EFS
       SecurityGroups: [ !Ref EFSSecurityGroup ]
-      SubnetId: !Select [ 0, !Ref Subnets ]
+      SubnetId: !Select [ 0, !Ref VPCSubnets ]
 
   EFSMT2:
     Type: AWS::EFS::MountTarget
     Properties:
       FileSystemId: !Ref EFS
       SecurityGroups: [ !Ref EFSSecurityGroup ]
-      SubnetId: !Select [ 1, !Ref Subnets ]
+      SubnetId: !Select [ 1, !Ref VPCSubnets ]
 
+  # Roles
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      RoleName: rdfox-task-execution-role
+      AssumeRolePolicyDocument:
+        Statement:
+          Action: [ sts:AssumeRole ]
+          Effect: Allow
+          Principal:
+            Service: [ ecs-tasks.amazonaws.com ]
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: rdfox-task-execution-policy
+          PolicyDocument:
+            Statement:
+              - Action: [ ssm:GetParameters, ssm:GetParameter,
+                          secretsmanager:GetSecretValue, secretsmanager:DescribeSecret,
+                          kms:Decrypt ]
+                Effect: Allow
+                Resource: "*"
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      RoleName: rdfox-task-role
+      AssumeRolePolicyDocument:
+        Statement:
+          Action: [ sts:AssumeRole ]
+          Effect: Allow
+          Principal:
+            Service: [ ecs-tasks.amazonaws.com ]
+      Policies:
+        - PolicyName: rdfox-task-policy
+          PolicyDocument:
+            Statement:
+              - Action: [ elasticfilesystem:* ]
+                Effect: Allow
+                Resource: "*"
