@@ -24,6 +24,11 @@ Parameters:
     AllowedValues: [ 4096, 5120, 6144, 7168, 8192 ]
     Default: 4096
 
+  ResourceNamePrefix:
+    Type: String
+    Description: Prefix used for naming resources
+    Default: demo
+
   ServiceDomainName:
     Description: Domain Name of the Service, for example; rdfox.example.com
     Type: String
@@ -57,7 +62,7 @@ Resources:
   Cluster:
     Type: AWS::ECS::Cluster
     Properties:
-      ClusterName: rdfox-cluster
+      ClusterName: !Sub ${ResourceNamePrefix}-rdfox-cluster
 
   Service:
     DependsOn: ListenerRule
@@ -163,10 +168,11 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       GroupDescription: Access to the ECS hosts and the tasks/containers that run on them
+      GroupName: !Sub ${ResourceNamePrefix}-rdfox-ecs
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 12110
-          ToPort: 12110 
+          ToPort: 12110
           CidrIp: 0.0.0.0/0
 
   # EFS
@@ -207,6 +213,7 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       GroupDescription: Access to the ECS hosts and the tasks/containers that run on them
+      GroupName: !Sub ${ResourceNamePrefix}-rdfox-efs
       SecurityGroupIngress:
         - SourceSecurityGroupId: !Ref ECSSecurityGroup
           IpProtocol: -1
@@ -230,7 +237,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       Path: /
-      RoleName: rdfox-task-execution-role
+      RoleName: !Sub ${ResourceNamePrefix}-rdfox-task-execution-role
       AssumeRolePolicyDocument:
         Statement:
           Action: [ sts:AssumeRole ]
@@ -240,7 +247,7 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
       Policies:
-        - PolicyName: rdfox-task-execution-policy
+        - PolicyName: !Sub ${ResourceNamePrefix}-rdfox-task-execution-policy
           PolicyDocument:
             Statement:
               - Action: [ ssm:GetParameters, ssm:GetParameter,
@@ -253,7 +260,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       Path: /
-      RoleName: rdfox-task-role
+      RoleName: !Sub ${ResourceNamePrefix}-rdfox-task-role
       AssumeRolePolicyDocument:
         Statement:
           Action: [ sts:AssumeRole ]
@@ -261,7 +268,7 @@ Resources:
           Principal:
             Service: [ ecs-tasks.amazonaws.com ]
       Policies:
-        - PolicyName: rdfox-task-policy
+        - PolicyName: !Sub ${ResourceNamePrefix}-rdfox-task-policy
           PolicyDocument:
             Statement:
               - Action: [ elasticfilesystem:* ]
